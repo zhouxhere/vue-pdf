@@ -1,58 +1,143 @@
 <template>
   <div class="hello">
-    <h1>{{ msg }}</h1>
-    <p>
-      For a guide and recipes on how to configure / customize this project,<br>
-      check out the
-      <a href="https://cli.vuejs.org" target="_blank" rel="noopener">vue-cli documentation</a>.
-    </p>
-    <h3>Installed CLI Plugins</h3>
-    <ul>
-      <li><a href="https://github.com/vuejs/vue-cli/tree/dev/packages/%40vue/cli-plugin-babel" target="_blank" rel="noopener">babel</a></li>
-      <li><a href="https://github.com/vuejs/vue-cli/tree/dev/packages/%40vue/cli-plugin-eslint" target="_blank" rel="noopener">eslint</a></li>
-    </ul>
-    <h3>Essential Links</h3>
-    <ul>
-      <li><a href="https://vuejs.org" target="_blank" rel="noopener">Core Docs</a></li>
-      <li><a href="https://forum.vuejs.org" target="_blank" rel="noopener">Forum</a></li>
-      <li><a href="https://chat.vuejs.org" target="_blank" rel="noopener">Community Chat</a></li>
-      <li><a href="https://twitter.com/vuejs" target="_blank" rel="noopener">Twitter</a></li>
-      <li><a href="https://news.vuejs.org" target="_blank" rel="noopener">News</a></li>
-    </ul>
-    <h3>Ecosystem</h3>
-    <ul>
-      <li><a href="https://router.vuejs.org" target="_blank" rel="noopener">vue-router</a></li>
-      <li><a href="https://vuex.vuejs.org" target="_blank" rel="noopener">vuex</a></li>
-      <li><a href="https://github.com/vuejs/vue-devtools#vue-devtools" target="_blank" rel="noopener">vue-devtools</a></li>
-      <li><a href="https://vue-loader.vuejs.org" target="_blank" rel="noopener">vue-loader</a></li>
-      <li><a href="https://github.com/vuejs/awesome-vue" target="_blank" rel="noopener">awesome-vue</a></li>
-    </ul>
+    <div class="header">
+      <button :disabled="pdfScale >= scaleMax" @click="larger()">larger</button>
+      <button :disabled="pdfScale <= scaleMin" @click="smaller()">
+        smaller
+      </button>
+    </div>
+    <div class="content">
+      <div v-for="page in pdfPages" :key="page" style="position: relative">
+        <canvas :id="`pdf-${page}`" />
+        <div :id="`text-${page}`" class="textLayer"></div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script>
+import { TextLayerBuilder } from "pdfjs-dist/web/pdf_viewer";
+import "pdfjs-dist/web/pdf_viewer.css";
+import { EventBus } from "pdfjs-dist/web/pdf_viewer";
+const PDFJS = require("pdfjs-dist");
+PDFJS.GlobalWorkerOptions.workerSrc =
+  "https://cdn.bootcss.com/pdf.js/2.6.347/pdf.worker.js";
 export default {
-  name: 'HelloWorld',
-  props: {
-    msg: String
-  }
-}
+  name: "HelloWorld",
+  data() {
+    return {
+      pdfDoc: null,
+      pdfScale: 1.0,
+      pdfPages: [],
+      pdfWidth: "",
+      pdfSrc: null,
+      scaleMax: window.screen.width > 1440 ? 1.4 : 1.2,
+      scaleMin: 1,
+    };
+  },
+  mounted() {
+    this.loadFile();
+  },
+  methods: {
+    loadFile() {
+      let loadTask = PDFJS.getDocument(
+        "HPE MicroServer Gen10 Plus 服务器-产品彩页.pdf"
+      );
+      loadTask.promise
+        .then((pdf) => {
+          this.pdfDoc = pdf;
+          this.pdfPages = pdf.numPages;
+        })
+        .then(async () => {
+          this.renderPage(1);
+        });
+    },
+    async renderPage(num) {
+      let page = await this.pdfDoc.getPage(num);
+      let canvas = document.getElementById(`pdf-${num}`);
+      let ctx = canvas.getContext("2d");
+      let dpr = window.devicePixelRatio || 1;
+      let bsr =
+        ctx.webkitBackingStorePixelRatio ||
+        ctx.mozBackingStorePixelRatio ||
+        ctx.msBackingStorePixelRatio ||
+        ctx.oBackingStorePixelRatio ||
+        ctx.backingStorePixelRatio ||
+        1;
+      let ratio = dpr / bsr;
+      let viewport = page.getViewport({ scale: this.pdfScale });
+      canvas.width = viewport.width * ratio;
+      canvas.height = viewport.height * ratio;
+
+      canvas.style.width = viewport.width + "px";
+      canvas.style.height = viewport.height + "px";
+      this.pdfWidth = viewport.width + "px";
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+      let renderContext = {
+        canvasContext: ctx,
+        viewport: viewport,
+      };
+      await page.render(renderContext);
+
+      const textLayerDiv = document.getElementById(`text-${num}`);
+      textLayerDiv.style.width = viewport.width + "px";
+      textLayerDiv.style.height = viewport.height + "px";
+      var textLayer = new TextLayerBuilder({
+        textLayerDiv: textLayerDiv,
+        eventBus: new EventBus(),
+        pageIndex: page.pageIndex,
+        viewport: viewport,
+      });
+
+      let textContent = await page.getTextContent();
+      textLayer.setTextContent(textContent);
+
+      textLayer.render();
+
+      if (this.pdfPages > num) {
+        this.renderPage(num + 1);
+      }
+    },
+    larger() {
+      if (this.pdfScale >= this.scaleMax) {
+        return;
+      }
+      this.pdfScale = this.pdfScale + 0.1;
+      this.loadFile();
+    },
+    smaller() {
+      if (this.pdfScale <= this.scaleMin) {
+        return;
+      }
+      this.pdfScale = this.pdfScale - 0.1;
+      this.loadFile();
+    },
+  },
+};
 </script>
 
 <!-- Add "scoped" attribute to limit CSS to this component only -->
 <style scoped>
-h3 {
-  margin: 40px 0 0;
+.hello {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
-ul {
-  list-style-type: none;
-  padding: 0;
+.header {
+  width: 100%;
+  flex: 0 0 48px;
+  background: #eaeaea;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
-li {
-  display: inline-block;
-  margin: 0 10px;
-}
-a {
-  color: #42b983;
+.content {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  overflow: auto;
 }
 </style>
